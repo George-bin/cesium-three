@@ -1,0 +1,118 @@
+﻿@import url(./Libs/Cesium1.48/Widgets/widgets.css);
+
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  background: #000;
+}
+
+#cesiumContainer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  font-family: sans-serif;
+}
+
+#ThreeContainer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  font-family: sans-serif;
+  pointer-events: none;
+}
+
+.fullWindow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  font-family: sans-serif;
+}
+
+.loadingIndicator {
+  display: block;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin-top: -33px;
+  margin-left: -33px;
+  width: 66px;
+  height: 66px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-image: url(Images/ajax-loader.gif);
+}
+
+.cutting-section {
+  position: fixed;
+  right: 20px;
+  top: 20px;
+  width: 240px;
+  z-index: 999;
+}
+
+.cutting-section h3 {
+  height: 24px;
+  line-height: 24px;
+  font-size: 16px;
+  font-weight: normal;
+  color: white;
+}
+
+.cutting-section .slider-list {
+  padding: 10px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.cutting-section .slider-item {
+  display: flex;
+  align-items: center;
+  color: white;
+}
+
+.cutting-section .color-list {
+  flex-wrap: wrap;
+}
+
+.cutting-section .color-list .color-item {
+  width: 26px;
+  height: 16px;
+  border: 2px solid #fff;
+  cursor: pointer;
+}
+
+.cutting-section .color-list .color-item+.color-item {
+  margin-left: 12px;
+}
+
+.cutting-section .color-list .color-item:nth-child(6) {
+  margin-left: 0;
+}
+
+.cutting-section .color-list .color-item:nth-child(n+6) {
+  margin-top: 5px;
+}
+
+.cutting-section .slider-item .el-slider {
+  flex: 1;
+  margin-left: 20px;
+}
+

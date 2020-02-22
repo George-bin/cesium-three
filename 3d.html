@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!-- Use correct character set. -->
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"
+    />
+    <title>裁切模型</title>
+    <link
+      href="Tools-12CesiumThreejs.css"
+      rel="stylesheet"
+      type="text/css"
+      media="all"
+    />
+    <script src="Libs/Cesium1.64/Cesium.js"></script>
+    <script src="Libs/Three/three-r113.js"></script>
+    <!-- <script src="Libs/Three/OrbitControls.js"></script> -->
+    <script src="Libs/jquery.min.js"></script>
+    <script src="Libs/vue.js"></script>
+    <!-- 引入组件库 -->
+    <script src="Libs/Element/index.js"></script>
+    <!-- 引入样式 -->
+    <link rel="stylesheet" href="Libs/Element/index.css">
+    <style>
+      * {
+        padding: 0;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="cesiumContainer"></div>
+      <div id="ThreeContainer"></div>
+      <div id="cover">
+        <div id="loadingIndicator" class="loadingIndicator"></div>
+      </div>
+      <!-- 控制模型裁切 -->
+      <div class="cutting-section">
+        <div class="level-cutting cutting-item">
+          <h3>水平裁切</h3>
+          <div class="slider-list">
+            <div class="slider-item">
+              <span class="label">Z轴</span>
+              <el-slider v-model="cuttingZ"></el-slider>  
+            </div>
+          </div>
+        </div>
+        <div class="longitudinal-cutting cutting-item">
+          <h3>纵向裁切</h3>
+          <div class="slider-list">
+            <div class="slider-item">
+              <span class="label">X轴</span>
+              <el-slider v-model="cuttingX"></el-slider>  
+            </div>
+            <div class="slider-item">
+              <span class="label">Y轴</span>
+              <el-slider v-model="cuttingY"></el-slider>  
+            </div>
+          </div>
+        </div>
+        <div class="cutting-item">
+          <h3>模型拉伸</h3>
+          <div class="slider-list">
+            <div class="slider-item">
+              <span class="label">拉伸</span>
+              <el-slider v-model="stretchValue"></el-slider>  
+            </div>
+          </div>
+        </div>
+        <div class="cutting-item">
+          <h3>模型显示/隐藏</h3>
+          <div class="slider-list">
+            <div class="slider-item color-list">
+              <div
+                v-for="(item, index) in colorArr"
+                :key="index"
+                class="color-item"
+                :style="{
+                  background: activeColorArr.includes(item.id) ? item.activeColor : item.normalColor
+                }"
+                @click="handleHideAndShowModel(item, index)"></div>
+            </div>
+          </div>
+        </div>
+        <div class="cutting-item" style="margin-top: 5px;">
+          <el-button type="primary" size="small" @click="handleOpen3DTime">雷达回波</el-button>
+        </div>
+      </div>
+    </div>
+    <script>
+      // boundaries in WGS84 around the object
+      var minWGS84 = [73, 12.2];
+      var maxWGS84 = [135, 54.2];
+      var cesiumContainer = null;
+      var ThreeContainer = null;
+      // 3D模型
+      var _3dModelArr = [];
+
+      var _3Dobjects = []; //Could be any Three.js object mesh
+      var three = {
+        renderer: null,
+        camera: null,
+        scene: null
+      };
+
+      var cesium = {
+        viewer: null
+      };
+
+      const color20 = new THREE.Color(0 / 255, 214 / 255, 4 / 255);
+      const color25 = new THREE.Color(5 / 255, 142 / 255, 1 / 255);
+      const color30 = new THREE.Color(249 / 255, 252 / 255, 5 / 255);
+      const color35 = new THREE.Color(229 / 255, 188 / 255, 8 / 255);
+      const color40 = new THREE.Color(249 / 255, 144 / 255, 3 / 255);
+      const color45 = new THREE.Color(242 / 255, 5 / 255, 0);
+      const color50 = new THREE.Color(216 / 255, 2 / 255, 6 / 255);
+      const color60 = new THREE.Color(247, 7, 231);
+
+      let cx = new Cesium.Cartesian3(1,0,0.5);
+      let xPlanePosition = new THREE.Vector3(cx.x, cx.y, cx.z);
+      let cuttingXPlane = new THREE.Plane(xPlanePosition, 3000000)
+      let cy = new Cesium.Cartesian3(0, -1, 0.5);
+      let yPlanePosition = new THREE.Vector3(cy.x, cy.y, cy.z);
+      let cuttingYPlane = new THREE.Plane(yPlanePosition, 3000000)
+      let cz = new Cesium.Cartesian3(0.4651, -1.4, -1);
+      let zPlanePosition = new THREE.Vector3(cz.x, cz.y, cz.z);
+      let cuttingZPlane = new THREE.Plane(zPlanePosition, 3500000)
+      let PlaneArr = [
+        //创建一个垂直x轴的平面，方向沿着x轴负方向，沿着x轴正方向平移20, 3000000
+        cuttingXPlane,
+        cuttingZPlane,
+        cuttingYPlane
+        // 垂直轴的平面
+        // new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
+        // 垂直轴的平面 475000
+        // new THREE.Plane(new THREE.Vector3(0, -1, 0), 4700000)
+      ];
+
+      function _3DObject() {
+        //THREEJS 3DObject.mesh
+        this.threeMesh = null;
+        //location bounding box
+        this.minWGS84 = null;
+        this.maxWGS84 = null;
+      }
+      new Vue({
+        el: "#app",
+        data: {
+          cuttingX: 0,
+          cuttingY: 0,
+          cuttingZ: 0,
+          stretchValue: 0,
+          activeColorArr: [20, 25, 30, 35, 40, 45, 50],
+          colorArr: [
+            {
+              activeColor: 'rgba(216,2,6,1)',
+              normalColor: 'rgba(216,2,6,0.6)',
+              id: 50
+            },
+            {
+              activeColor: 'rgba(242,5,0,1)',
+              normalColor: 'rgba(242,5,0,0.6)',
+              id: 45
+            },
+            {
+              activeColor: 'rgba(249,144,3,1)',
+              normalColor: 'rgba(249,144,3,0.6)',
+              id: 40
+            },
+            {
+              activeColor: 'rgba(229,188,8,1)',
+              normalColor: 'rgba(229,188,8,0.6)',
+              id: 35
+            },
+            {
+              activeColor: 'rgba(249,252,5,1)',
+              normalColor: 'rgba(249,252,5,0.6)',
+              id: 30
+            },
+            {
+              activeColor: 'rgba(5,142,1,1)',
+              normalColor: 'rgba(5,142,1,0.6)',
+              id: 25
+            },
+            {
+              activeColor: 'rgba(0,214,4,1)',
+              normalColor: 'rgba(0,214,4,0.6)',
+              id: 20
+            }
+          ]
+        },
+        watch: {
+          cuttingX: function(val, oldval) {
+            console.log('cuttingX:', cuttingXPlane.constant)
+            let constant = 2000000 - (val+1) * 31000
+            cuttingXPlane.set(xPlanePosition, constant)
+          },
+          cuttingY: function(val, oldval) {
+            // console.log('cuttingY:', cuttingYPlane.constant)
+            let constant = 3000000 - (val+1) * 20000
+            console.log('cuttingY:', constant)
+            cuttingYPlane.set(yPlanePosition, constant)
+          },
+          cuttingZ: function(val, oldval) {
+            // console.log('cuttingY:', cuttingZPlane.constant)
+            let constant;
+            if (this.stretchValue <= 0) {
+              constant = 3500000 - val * 700;
+            } else {
+              constant = 3500000 + this.stretchValue * 700 - val * 1400;
+            }
+            console.log('cuttingZ:', constant)
+            cuttingZPlane.set(zPlanePosition, constant)
+          },
+          stretchValue: function(val, oldval) {
+            // 同步更新水平裁切面的高度
+            console.log(cuttingZPlane.constant)
+            let constant;
+            if (this.cuttingZ <= 0) {
+              let constant = 3500000 + val * 700;
+              cuttingZPlane.set(zPlanePosition, constant);
+            }
+
+            let z = 5000 + val * 50
+            _3dModelArr.forEach(item => {
+              item.scale.set(6000, 6000, z)
+            })
+          }
+        },
+        mounted() {
+          this.init();
+          this.initCesium(); // Initialize Cesium renderer
+          this.initThree(); // Initialize Three.js renderer
+          this.load3dModel();
+          this.loop(); // Looping renderer
+        },
+        methods: {
+          init() {
+            var loadingIndicator = document.getElementById("loadingIndicator");
+            loadingIndicator.style.display = "none";
+            cesiumContainer = document.getElementById("cesiumContainer");
+            ThreeContainer = document.getElementById("ThreeContainer");
+          },
+          initCesium() {
+            cesium.viewer = new Cesium.Viewer(cesiumContainer, {
+              useDefaultRenderLoop: false,
+              selectionIndicator: false,
+              homeButton: false,
+              sceneModePicker: false,
+              navigationHelpButton: false,
+              infoBox: false,
+              navigationHelpButton: false,
+              navigationInstructionsInitiallyVisible: false,
+              animation: false,
+              timeline: false,
+              fullscreenButton: false,
+              allowTextureFilterAnisotropic: false,
+              contextOptions: {
+                webgl: {
+                  alpha: false,
+                  antialias: true,
+                  preserveDrawingBuffer: true,
+                  failIfMajorPerformanceCaveat: false,
+                  depth: false,
+                  stencil: false
+                }
+              },
+              targetFrameRate: 60,
+              resolutionScale: 0.1,
+              orderIndependentTranslucency: true,
+              imageryProvider: new Cesium.UrlTemplateImageryProvider({
+                url:
+                  "http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer/tile/{z}/{y}/{x}",
+                maximumLevel: 5,
+                minimumLevel: 4
+              }),
+              baseLayerPicker: false,
+              geocoder: false,
+              automaticallyTrackDataSourceClocks: false,
+              dataSources: null,
+              clock: null,
+              terrainShadows: Cesium.ShadowMode.DISABLED
+            });
+
+            var center = Cesium.Cartesian3.fromDegrees(125, 18.5, 1400000);
+            cesium.viewer.camera.flyTo({
+              destination: center,
+              orientation: {
+                // heading: Cesium.Math.toRadians(0),
+                // pitch: Cesium.Math.toRadians(-60),
+                // roll: Cesium.Math.toRadians(0)
+                heading: 5.9934535934126725,
+                pitch: -0.8985590994735455,
+                roll: 0.00015238951402185563
+              },
+              duration: 3
+            });
+            cesium.viewer.scene.screenSpaceCameraController.minimumZoomDistance = 1200000;//相机的高度的最小值
+            cesium.viewer.scene.screenSpaceCameraController.maximumZoomDistance = 2000000; //相机高度的最大值
+            // cesium.viewer.scene.screenSpaceCameraController.minimumZoomDistance = 0.8;
+            // cesium.viewer.scene.screenSpaceCameraController.maximumZoomDistance = 1.5;
+            // setInterval(() => {
+            //   console.log(cesium.viewer.scene.screenSpaceCameraController.minimumZoomDistance, cesium.viewer.scene.screenSpaceCameraController.minimumZoomDistance)
+            // }, 1000)
+          },
+          initThree() {
+            var fov = 45;
+            var width = window.innerWidth;
+            var height = window.innerHeight;
+            var aspect = width / height;
+            var near = 1;
+            var far = 10 * 1000 * 1000;
+
+            three.scene = new THREE.Scene();
+            three.camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+            three.renderer = new THREE.WebGLRenderer({
+              alpha: true,
+              antialias: true,
+              preserveDrawingBuffer: true,
+              failIfMajorPerformanceCaveat: false,
+              logarithmicDepthBuffer: true,
+              depth: true,
+              stencil: true
+            });
+            ThreeContainer.appendChild(three.renderer.domElement);
+            three.renderer.setPixelRatio(window.devicePixelRatio)
+            three.renderer.setSize(window.innerWidth, window.innerHeight);
+            three.renderer.shadowMap.enabled = true;
+            three.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // 默认的是，没有设置的这个清晰 THREE.PCFShadowMap
+            this.initLight();
+            // var helper = new THREE.AxisHelper(25000);
+            // three.scene.add(helper);
+            three.renderer.clippingPlanes = PlaneArr;
+            three.renderer.localClippingEnabled = true;
+          },
+          initLight() {
+            var light = new THREE.AmbientLight(0xaaaaaa); //模拟漫反射光源
+            light.position.set(600, 1000, 800); //使用Ambient Light时可以忽略方向和角度，只考虑光源的位置
+            three.scene.add(light);
+            // light = new THREE.PointLight(0xaaaaaa);
+            // light.position.set(15000000, 30000000, 1000000);
+
+            // //告诉平行光需要开启阴影投射
+            // light.castShadow = true;
+
+            // three.scene.add(light);
+            // 添加定向光线
+            var directionalLight = new THREE.DirectionalLight(0xaaaaaa);
+            directionalLight.position
+              .set(15000000, 30000000, 1000000)
+              .normalize();
+            three.scene.add(directionalLight);
+          },
+          load3dModel() {
+            var dodecahedronMeshYup = new THREE.Group();
+            let index = 0;
+            for (let i = 50; i >= 20; i -= 5) {
+              let url = "http://localhost/file/data/cesium/0-positions-" + i + ".json";
+              let data = null;
+              $.ajax({
+                url: url,
+                async: false,
+                success: function(res) {
+                  data = res;
+                }
+              });
+              let color = color20;
+              if (i === 20) {
+                color = color20;
+              } else if (i === 25) {
+                color = color25;
+              } else if (i === 30) {
+                color = color30;
+              } else if (i === 35) {
+                color = color35;
+              } else if (i === 40) {
+                color = color40;
+              } else if (i === 45) {
+                color = color45;
+              } else if (i === 50) {
+                color = color50;
+              }
+              // console.log("data",data)
+              var geometry = new THREE.BufferGeometry(); //创建一个Buffer类型几何体对象
+              //类型数组创建顶点数据
+              // 设置几何体attributes属性的位置属性
+              geometry.setIndex(data[1]);
+              geometry.setAttribute(
+                "position",
+                new THREE.Float32BufferAttribute(data[0], 3)
+              );
+              geometry.computeFaceNormals();
+              geometry.computeVertexNormals();
+              geometry.computeBoundingSphere();
+              var material = new THREE.MeshLambertMaterial({
+                color: color, //三角面颜色
+                side: THREE.DoubleSide, //两面可见
+                // 设置材质的剪裁平面的属性
+                // clippingPlanes: PlaneArr,
+                // //改变剪裁方式，剪裁所有平面要剪裁部分的交集
+                // clipIntersection: true,
+                flatShading: THREE.SmoothShading //THREE.SmoothShading  THREE.FlatShading
+                // wireframe:true
+              }); //材质对象
+              var dodecahedronMesh = new THREE.Mesh(geometry, material);
+              dodecahedronMesh.scale.set(6000, 6000, 5000); //scale object to be visible at planet scale
+              dodecahedronMesh.position.x = 3750000; // translate "up" in Three.js space so the "bottom" of the mesh is the handle
+              dodecahedronMesh.position.y = -500000.0; // translate "up" in Three.js space so the "bottom" of the mesh is the handle
+              dodecahedronMesh.rotateZ(-2.71);
+              dodecahedronMesh.rotateY(0.07);
+              dodecahedronMesh.material.polygonOffset=true;//开启偏移
+              dodecahedronMesh.material.polygonOffsetFactor=index*2;//与相机距离2
+              dodecahedronMesh.material.polygonOffsetUnits=1;//偏移的单位
+              // dodecahedronMesh.castShadow = true;
+              // dodecahedronMesh.material.depthTest=false;
+              // dodecahedronMesh.scale.set(6000, 6000, 7000);
+              _3dModelArr.push(dodecahedronMesh)
+              dodecahedronMeshYup.add(dodecahedronMesh);
+            }
+            three.scene.add(dodecahedronMeshYup);
+            _3DOB = new _3DObject();
+            _3DOB.threeMesh = dodecahedronMeshYup;
+            _3DOB.minWGS84 = minWGS84;
+            _3DOB.maxWGS84 = maxWGS84;
+            _3Dobjects.push(_3DOB);
+            index++;
+          },
+          renderCesium() {
+            cesium.viewer.render();
+          },
+          renderThreeObj() {
+            // register Three.js scene with Cesium
+            three.camera.fov = Cesium.Math.toDegrees(cesium.viewer.camera.frustum.fovy) // 获取cesium相机角度并赋值给Three
+            three.camera.updateProjectionMatrix();
+            // 笛卡尔转矢量
+            var cartToVec = function (cart) {
+                return new THREE.Vector3(cart.x, cart.y, cart.z);
+            };
+            // 物体位置调整
+            for (var id in _3Dobjects) {
+                minWGS84 = _3Dobjects[id].minWGS84;
+                maxWGS84 = _3Dobjects[id].maxWGS84;
+                // 物体中心点坐标
+                var center = Cesium.Cartesian3.fromDegrees((minWGS84[0] + maxWGS84[0]) / 2, (minWGS84[1] + maxWGS84[1]) / 2);
+                // 物体顶部朝向坐标
+                var centerHigh = Cesium.Cartesian3.fromDegrees((minWGS84[0] + maxWGS84[0]) / 2, (minWGS84[1] + maxWGS84[1]) / 2, 1);
+                // y轴朝向
+                var bottomLeft = cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], minWGS84[1])); // 指定平面左下角
+                var topLeft = cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], maxWGS84[1])); // 指定平面左上角
+                var latDir = new THREE.Vector3().subVectors(bottomLeft, topLeft).normalize(); // 指定平面左边向量
+                // 物体位置调整
+                _3Dobjects[id].threeMesh.position.copy(center); // 物体position更正
+                _3Dobjects[id].threeMesh.lookAt(centerHigh.x, centerHigh.y, centerHigh.z); // z轴方向，即上方向，lookAt改传三个参数
+                _3Dobjects[id].threeMesh.up.copy(latDir);   //指定y轴的朝向与平面左边平行，即模型朝向与平面左边朝向相同
+            }
+            //关闭相机自动更新
+            three.camera.matrixAutoUpdate = false;
+            // cesium相机位置
+            var cvm = cesium.viewer.camera.viewMatrix;
+            var civm = cesium.viewer.camera.inverseViewMatrix;
+            // 同步Three相机位置设置
+            three.camera.matrixWorld.set(
+                civm[0], civm[4], civm[8], civm[12],
+                civm[1], civm[5], civm[9], civm[13],
+                civm[2], civm[6], civm[10], civm[14],
+                civm[3], civm[7], civm[11], civm[15]
+            );
+            three.camera.matrixWorldInverse.set(
+                cvm[0], cvm[4], cvm[8], cvm[12],
+                cvm[1], cvm[5], cvm[9], cvm[13],
+                cvm[2], cvm[6], cvm[10], cvm[14],
+                cvm[3], cvm[7], cvm[11], cvm[15]
+            );
+            // 相机设置参数
+            var width = ThreeContainer.clientWidth;
+            var height = ThreeContainer.clientHeight;
+            var aspect = width / height;
+            three.camera.aspect = aspect;
+            three.camera.updateProjectionMatrix(); // 相机参数更新
+            // 渲染尺寸
+            three.renderer.setPixelRatio(window.devicePixelRatio)
+            three.renderer.setSize(window.innerWidth, window.innerHeight);
+            three.renderer.render(three.scene, three.camera); // 更新渲染
+          },
+          loop() {
+            requestAnimationFrame(this.loop);
+            this.renderCesium();
+            this.renderThreeObj();
+          },
+          // 显示/隐藏模型
+          handleHideAndShowModel(item, index) {
+            if (this.activeColorArr.includes(item.id)) {
+              let l = this.activeColorArr.findIndex(id => {
+                return id === item.id
+              });
+              this.activeColorArr.splice(l, 1);
+              _3dModelArr.forEach((color, i) => {
+                if (index === i) {
+                  color.material.visible = false;
+                }
+              })
+            } else {
+              this.activeColorArr.push(item.id);
+              _3dModelArr.forEach((color, i) => {
+                if (index === i) {
+                  color.material.visible = true;
+                }
+              })
+            }
+          },
+          handleOpen3DTime() {
+            // window.open('http://localhost/cesium+three/3d-time.html')
+            location.href = 'http://localhost/cesium+three/3d-time.html'
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

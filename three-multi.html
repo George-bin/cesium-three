@@ -1,0 +1,414 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Use correct character set. -->
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+    <title>雷达回波-动态</title>
+    <link href="Tools-12CesiumThreejs.css" rel="stylesheet" type="text/css" media="all">
+    <script src="Libs/Cesium1.64/Cesium.js"></script>
+    <script src="Libs/Three/three-r113.js"></script>
+    <script src="Libs/Three/OrbitControls.js"></script>
+    <script src="Libs/jquery.min.js"></script>
+</head>
+<body onload="pageload()">
+    
+    <div id="cesiumContainer"></div>
+    <div id="ThreeContainer"></div>
+    <div id="cover">
+        <div id="loadingIndicator" class="loadingIndicator"></div>
+        <div style="z-index: 99999; font-size:24px; width: 100%; height: 40px;position: absolute; text-align: center; color: whitesmoke; margin-top:20px;" id="titleTime">
+        --</div>
+    </div>
+
+    <script>
+      function pageload() {
+          var loadingIndicator = document.getElementById('loadingIndicator');
+          loadingIndicator.style.display = 'none';
+
+          // boundaries in WGS84 around the object
+          var minWGS84 = [73, 12.2];
+          var maxWGS84 = [135, 54.2];
+          var cesiumContainer = document.getElementById("cesiumContainer");
+          var ThreeContainer = document.getElementById("ThreeContainer");
+
+          var _3Dobjects = []; //Could be any Three.js object mesh
+          var three = {
+              renderer: null,
+              camera: null,
+              scene: null
+          };
+
+          var cesium = {
+              viewer: null
+          };
+
+          function _3DObject() {
+              //THREEJS 3DObject.mesh
+              this.threeMesh = null;
+              //location bounding box
+              this.minWGS84 = null;
+              this.maxWGS84 = null;
+          }
+
+          function initCesium() {
+              cesium.viewer = new Cesium.Viewer(cesiumContainer, {
+                  useDefaultRenderLoop: false,
+                  selectionIndicator: false,
+                  homeButton: false,
+                  sceneModePicker: false,
+                  navigationHelpButton: false,
+                  infoBox: false,
+                  navigationHelpButton: false,
+                  navigationInstructionsInitiallyVisible: false,
+                  animation: false,
+                  timeline: false,
+                  fullscreenButton: false,
+                  allowTextureFilterAnisotropic: false,
+                  contextOptions: {
+                      webgl: {
+                          alpha: false,
+                          antialias: true,
+                          preserveDrawingBuffer: true,
+                          failIfMajorPerformanceCaveat: false,
+                          depth: true,
+                          stencil: false,
+                          anialias: false
+                      },
+                  },
+                  targetFrameRate: 60,
+                  resolutionScale: 0.1,
+                  orderIndependentTranslucency: true,
+                  imageryProvider: new Cesium.UrlTemplateImageryProvider({
+                    url: "http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer/tile/{z}/{y}/{x}",
+                    maximumLevel: 5,
+                    minimumLevel: 4
+                    }),
+                  baseLayerPicker: true,
+                  geocoder: false,
+                  automaticallyTrackDataSourceClocks: false,
+                  dataSources: null,
+                  clock: null,
+                  terrainShadows: Cesium.ShadowMode.DISABLED
+              });
+
+              var center = Cesium.Cartesian3.fromDegrees(
+                120,
+                24.5,
+                2000000
+              );
+              cesium.viewer.camera.flyTo({
+                  destination: center,
+                  orientation: {
+                      heading: Cesium.Math.toRadians(0),
+                      pitch: Cesium.Math.toRadians(-75),
+                      roll: Cesium.Math.toRadians(0)
+                  },
+                  duration: 3
+              });
+          }
+
+          function initThree() {
+              var fov = 45;
+              var width = window.innerWidth;
+              var height = window.innerHeight;
+              var aspect = width / height;
+              var near = 1;
+              var far = 10 * 1000 * 1000;
+
+              three.scene = new THREE.Scene();
+              three.camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+              three.renderer = new THREE.WebGLRenderer({
+                  alpha: true,
+              antialias: true,
+              preserveDrawingBuffer: true,
+              failIfMajorPerformanceCaveat: false,
+              logarithmicDepthBuffer: true,
+              depth: true,
+              stencil: true });
+              ThreeContainer.appendChild(three.renderer.domElement);
+            //   three.renderer.shadowMap.enabled = true;
+            //   three.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // 默认的是，没有设置的这个清晰 THREE.PCFShadowMap
+              initLight();
+            
+          }
+          var group1 = new THREE.Group();
+        var group2 = new THREE.Group();
+          var light;
+        function initLight() {
+            var light = new THREE.AmbientLight(0xaaaaaa); //模拟漫反射光源
+            light.position.set(600, 1000, 800); //使用Ambient Light时可以忽略方向和角度，只考虑光源的位置
+            three.scene.add(light);
+            light = new THREE.PointLight(0xaaaaaa);
+            light.position.set(15000000, 30000000, 1000000);
+            
+            //告诉平行光需要开启阴影投射
+            light.castShadow = true;
+            
+            three.scene.add(light);
+
+            three.scene.add(group1,group2);
+        _3DOB = new _3DObject();
+        _3DOB.threeMesh = group1;
+        _3DOB.minWGS84 = minWGS84;
+        _3DOB.maxWGS84 = maxWGS84;
+        _3Dobjects.push(_3DOB);
+        _3DOB = new _3DObject();
+        _3DOB.threeMesh = group2;
+        _3DOB.minWGS84 = minWGS84;
+        _3DOB.maxWGS84 = maxWGS84;
+        _3Dobjects.push(_3DOB);
+        }
+
+          function init3DObject() {
+            //立方体
+            var cubeGeometry = new THREE.Geometry();
+            
+            //创建立方体的顶点
+            var vertices = [
+            new THREE.Vector3(10, 10, 10), //v0
+            new THREE.Vector3(-10, 10, 10), //v1
+            new THREE.Vector3(-10, -10, 10), //v2
+            new THREE.Vector3(10, -10, 10), //v3
+            new THREE.Vector3(10, -10, -10), //v4
+            new THREE.Vector3(10, 10, -10), //v5
+            new THREE.Vector3(-10, 10, -10), //v6
+            new THREE.Vector3(-10, -10, -10) //v7
+            ];
+
+            cubeGeometry.vertices = vertices;
+
+            //创建立方的面
+            var faces=[
+            new THREE.Face3(0,1,2),
+            new THREE.Face3(0,2,3),
+            new THREE.Face3(0,3,4),
+            new THREE.Face3(0,4,5),
+            new THREE.Face3(1,6,7),
+            new THREE.Face3(1,7,2),
+            new THREE.Face3(6,5,4),
+            new THREE.Face3(6,4,7),
+            new THREE.Face3(5,6,1),
+            new THREE.Face3(5,1,0),
+            new THREE.Face3(3,2,7),
+            new THREE.Face3(3,7,4)
+            ];
+
+            cubeGeometry.faces = faces;
+
+            //生成法向量
+            cubeGeometry.computeFaceNormals();
+
+            var cubeMaterial = new THREE.MeshLambertMaterial({color: 0x00ffff});
+
+            cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+            cube.scale.set(1500, 1500, 1500); //scale object to be visible at planet scale
+            cube.position.z += 15000.0; // translate "up" in Three.js space so the "bottom" of the mesh is the handle
+            cube.rotation.x = Math.PI / 2; // rotate mesh for Cesium's Y-up system
+
+            //告诉立方体需要投射阴影
+            cube.castShadow = true;
+
+              three.scene.add(cube); // don’t forget to add it to the Three.js scene manually
+              //Assign Three.js object mesh to our object array
+              var _3DOB = new _3DObject();
+              _3DOB.threeMesh =  cube
+;
+              _3DOB.minWGS84 = minWGS84;
+              _3DOB.maxWGS84 = maxWGS84;
+              _3Dobjects.push(_3DOB);
+          }
+
+        const color20 = new THREE.Color(0 / 255, 214 / 255, 4 / 255)
+        const color25 = new THREE.Color(5 / 255, 142 / 255, 1 / 255)
+        const color30 = new THREE.Color(249 / 255, 252 / 255, 5 / 255)
+        const color35 = new THREE.Color(229 / 255, 188 / 255, 8 / 255)
+        const color40 = new THREE.Color(249 / 255, 144 / 255, 3 / 255)
+        const color45 = new THREE.Color(242 / 255, 5 / 255, 0)
+        const color50 = new THREE.Color(216 / 255, 2 / 255, 6 / 255)
+        const color60 = new THREE.Color(247, 7, 231)
+        var currentIndex = 0;
+      
+        
+
+        function load3dModel(){
+            clearModel();
+            if(currentIndex == 0 || currentIndex % 2 === 0){
+                group1.traverse(function (item) {
+                    if (item instanceof THREE.Mesh) {
+                        console.log(222)
+                        item.visible = false;
+                        item.geometry.dispose(); // 删除几何体
+                        item.material.dispose(); // 删除材质
+                    }
+                });
+            }else{
+                group2.traverse(function (item) {
+                    if (item instanceof THREE.Mesh) {
+                        console.log(111)
+                        item.visible = false;
+                        item.geometry.dispose(); // 删除几何体
+                        item.material.dispose(); // 删除材质
+                    }
+                });
+            }
+            for(let i = 30;i>=20;i-=10){
+                let url = 'http://localhost/file/data/cesium/'+currentIndex+'-positions-'+i+'.json'
+                let data = null;
+                $.ajax({
+                    url: url,  
+                    async: false,  
+                    success: function(res){  
+                        data = res
+                    }  
+                });
+                let color = color20;
+                if(i === 20){
+                    color = color20;
+                } else if(i === 25){
+                    color = color25;
+                } else if(i === 30){
+                    color = color30;
+                } else if(i === 35){
+                    color = color35;
+                } else if(i === 40){
+                    color = color40;
+                } else if(i === 45){
+                    color = color45;
+                } else if(i === 50){
+                    color = color50;
+                }
+                // console.log("data",data)
+                var geometry = new THREE.BufferGeometry(); //创建一个Buffer类型几何体对象
+                //类型数组创建顶点数据
+                // 设置几何体attributes属性的位置属性
+                geometry.setIndex(data[1]);
+                geometry.addAttribute( 'position', new THREE.Float32BufferAttribute(data[0], 3));
+                // geometry.computeFaceNormals();
+                geometry.computeVertexNormals();
+                var material = new THREE.MeshLambertMaterial({
+                                    color: color, //三角面颜色
+                                    side: THREE.DoubleSide, //两面可见
+                                    combine: THREE.AddOperation,
+                                    shading:THREE.SmoothShading, //THREE.SmoothShading  THREE.FlatShading
+                                    // wireframe:true
+                                }); //材质对象
+                var dodecahedronMesh = new THREE.Mesh(geometry, material);
+                dodecahedronMesh.scale.set(6000, 6000, 5000); //scale object to be visible at planet scale
+                dodecahedronMesh.position.x = 3750000; // translate "up" in Three.js space so the "bottom" of the mesh is the handle
+                dodecahedronMesh.position.y = -500000.0; // translate "up" in Three.js space so the "bottom" of the mesh is the handle
+                dodecahedronMesh.rotateZ(-2.71);
+                dodecahedronMesh.rotateY(0.07);
+                dodecahedronMesh.castShadow = false;
+                if(currentIndex % 2 === 0){
+                    group2.add(dodecahedronMesh)
+                }else{
+                    group1.add(dodecahedronMesh)
+                }
+            }
+            $("#titleTime").html("雷达回波&nbsp;&nbsp;&nbsp;&nbsp;2019年8月10日&nbsp;&nbsp;0时"+(currentIndex)+"0分")
+            currentIndex+=1;
+            if(currentIndex > 5){
+                currentIndex = 0;
+            }
+            setTimeout(function(){
+                load3dModel();
+            },500)
+          }
+
+          function clearModel(){
+            // if(dodecahedronMeshYup){
+            //     // 删除掉所有的模型组内的mesh
+            //     dodecahedronMeshYup.traverse(function (item) {
+            //         if (item instanceof THREE.Mesh) {
+            //             console.log(1111)
+            //             item.visible = false;
+            //             item.geometry.dispose(); // 删除几何体
+            //             item.material.dispose(); // 删除材质
+            //         }
+            //     });
+            // }
+            // three.scene.remove(dodecahedronMeshYup);
+            _3Dobjects = []
+            THREE.Cache.clear()
+            three.renderer.render(three.scene, three.camera);
+          }
+
+          // Looping Renderer
+          function renderCesium() {
+              cesium.viewer.render();
+          }
+
+          function renderThreeObj() {
+               // register Three.js scene with Cesium
+            three.camera.fov = Cesium.Math.toDegrees(cesium.viewer.camera.frustum.fovy) // 获取cesium相机角度并赋值给Three
+            three.camera.updateProjectionMatrix();
+            // 笛卡尔转矢量
+            var cartToVec = function (cart) {
+                return new THREE.Vector3(cart.x, cart.y, cart.z);
+            };
+            // 物体位置调整
+            for (var id in _3Dobjects) {
+                minWGS84 = _3Dobjects[id].minWGS84;
+                maxWGS84 = _3Dobjects[id].maxWGS84;
+                // 物体中心点坐标
+                var center = Cesium.Cartesian3.fromDegrees((minWGS84[0] + maxWGS84[0]) / 2, (minWGS84[1] + maxWGS84[1]) / 2);
+                // 物体顶部朝向坐标
+                var centerHigh = Cesium.Cartesian3.fromDegrees((minWGS84[0] + maxWGS84[0]) / 2, (minWGS84[1] + maxWGS84[1]) / 2, 1);
+                // y轴朝向
+                var bottomLeft = cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], minWGS84[1])); // 指定平面左下角
+                var topLeft = cartToVec(Cesium.Cartesian3.fromDegrees(minWGS84[0], maxWGS84[1])); // 指定平面左上角
+                var latDir = new THREE.Vector3().subVectors(bottomLeft, topLeft).normalize(); // 指定平面左边向量
+                // 物体位置调整
+                _3Dobjects[id].threeMesh.position.copy(center); // 物体position更正
+                _3Dobjects[id].threeMesh.lookAt(centerHigh.x, centerHigh.y, centerHigh.z); // z轴方向，即上方向，lookAt改传三个参数
+                _3Dobjects[id].threeMesh.up.copy(latDir);   //指定y轴的朝向与平面左边平行，即模型朝向与平面左边朝向相同
+            }
+            //关闭相机自动更新
+            three.camera.matrixAutoUpdate = false;
+            // cesium相机位置
+            var cvm = cesium.viewer.camera.viewMatrix;
+            var civm = cesium.viewer.camera.inverseViewMatrix;
+            // 同步Three相机位置设置
+            three.camera.matrixWorld.set(
+                civm[0], civm[4], civm[8], civm[12],
+                civm[1], civm[5], civm[9], civm[13],
+                civm[2], civm[6], civm[10], civm[14],
+                civm[3], civm[7], civm[11], civm[15]
+            );
+            three.camera.matrixWorldInverse.set(
+                cvm[0], cvm[4], cvm[8], cvm[12],
+                cvm[1], cvm[5], cvm[9], cvm[13],
+                cvm[2], cvm[6], cvm[10], cvm[14],
+                cvm[3], cvm[7], cvm[11], cvm[15]
+            );
+            // 相机设置参数
+            var width = ThreeContainer.clientWidth;
+            var height = ThreeContainer.clientHeight;
+            var aspect = width / height;
+            three.camera.aspect = aspect;
+            three.camera.updateProjectionMatrix(); // 相机参数更新
+            // 渲染尺寸
+            three.renderer.setPixelRatio(window.devicePixelRatio)
+            three.renderer.setSize(window.innerWidth, window.innerHeight);
+            three.renderer.render(three.scene, three.camera); // 更新渲染
+          }
+
+          function loop() {
+              requestAnimationFrame(loop);
+              renderCesium();
+              renderThreeObj();
+          }
+
+          initCesium(); // Initialize Cesium renderer
+          initThree(); // Initialize Three.js renderer
+        //   init3DObject(); // Initialize Three.js object mesh with Cesium Cartesian coordinate system
+          setTimeout(function(){
+            load3dModel();
+          },5000)
+          loop(); // Looping renderer
+      }
+    </script>
+</body>
+</html>
